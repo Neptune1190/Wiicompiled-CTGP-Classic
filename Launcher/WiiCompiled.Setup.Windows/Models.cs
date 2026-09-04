@@ -19,6 +19,7 @@ internal sealed class InstallOptions
     /// <c>retro_rewind_root</c>; only its compile inputs are ever snapshotted.
     /// </summary>
     public string? RetroDirectoryPath { get; init; }
+    public string? CtgpDirectoryPath { get; init; }
 
     public RetroWfcPayloadMode RetroWfcPayloadMode { get; init; }
     public required string InstallDirectory { get; init; }
@@ -88,6 +89,7 @@ internal sealed class InstallState
 
     public DateTime InstalledUtc { get; set; } = DateTime.UtcNow;
     public bool RetroRewindInstalled { get; set; }
+    public bool CtgpClassicInstalled { get; set; }
     public string ToolkitReleaseTag { get; set; } = "";
     public string DolSha256 { get; set; } = "";
     public string RelSha256 { get; set; } = "";

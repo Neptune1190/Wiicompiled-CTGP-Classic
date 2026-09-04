@@ -1756,10 +1756,12 @@ public sealed partial class PpcLifter
                     return instructions;
                 }
 
-            case "bdnz" when operands.Count == 1:
-            case "bdz" when operands.Count == 1:
+            case "bdnz" when operands.Count is 1 or 2:
+            case "bdnzl" when operands.Count is 1 or 2:
+            case "bdz" when operands.Count is 1 or 2:
+            case "bdzl" when operands.Count is 1 or 2:
                 {
-                    var target = operands[0];
+                    var target = operands[^1];
                     var fallthrough = $"0x{ins.EndAddress:X8}";
                     return new IrInstruction[]
                     {

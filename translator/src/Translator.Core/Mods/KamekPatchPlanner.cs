@@ -7,6 +7,7 @@ public enum KamekPatchClassificationKind
 {
     ModuleCommand,
     BaseExecutablePatch,
+    RawExecutablePatch,
     BaseDataPatch,
     DroppedReservedRegion,
     Unsupported
@@ -32,7 +33,8 @@ public sealed class KamekPatchPlan
         Classifications.Where(c => c.Kind == KamekPatchClassificationKind.ModuleCommand);
 
     public IEnumerable<KamekPatchClassification> ExecutablePatches =>
-        Classifications.Where(c => c.Kind == KamekPatchClassificationKind.BaseExecutablePatch);
+        Classifications.Where(c => c.Kind is KamekPatchClassificationKind.BaseExecutablePatch or
+            KamekPatchClassificationKind.RawExecutablePatch);
 
     public IEnumerable<KamekPatchClassification> DataPatches =>
         Classifications.Where(c => c.Kind == KamekPatchClassificationKind.BaseDataPatch);
@@ -140,7 +142,16 @@ public static class KamekPatchPlanner
             var section = FindSection(baseManifest, command.Address);
             if (section is null)
             {
-                classifications.Add(Unsupported(command, "absolute command address is outside known base sections"));
+                classifications.Add(new KamekPatchClassification(
+                    KamekPatchClassificationKind.RawExecutablePatch,
+                    command.Id,
+                    command.Address,
+                    true,
+                    null,
+                    null,
+                    null,
+                    "absolute executable command applies as a raw guest patch",
+                    command.Arguments));
                 continue;
             }
 
@@ -160,12 +171,36 @@ public static class KamekPatchPlanner
                 continue;
             }
 
+            if (command.Id is KamekCommandId.Branch or KamekCommandId.BranchLink)
+            {
+                classifications.Add(new KamekPatchClassification(
+                    KamekPatchClassificationKind.RawExecutablePatch,
+                    command.Id,
+                    command.Address,
+                    true,
+                    null,
+                    null,
+                    section.Name,
+                    "branch command applies as a raw guest executable patch",
+                    command.Arguments));
+                continue;
+            }
+
             if (section.Executable)
             {
                 var function = functionIndex.FindContaining(command.Address);
                 if (function is null)
                 {
-                    classifications.Add(Unsupported(command, $"executable address is in {section.Name} but no containing function range was found"));
+                    classifications.Add(new KamekPatchClassification(
+                        KamekPatchClassificationKind.RawExecutablePatch,
+                        command.Id,
+                        command.Address,
+                        true,
+                        null,
+                        null,
+                        section.Name,
+                        "executable command has no containing translated function; applying as a raw guest patch",
+                        command.Arguments));
                     continue;
                 }
 

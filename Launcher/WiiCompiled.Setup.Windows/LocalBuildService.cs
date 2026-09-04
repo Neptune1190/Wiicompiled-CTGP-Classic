@@ -8,7 +8,7 @@ namespace WiiCompiled.Setup.Windows;
 /// build graph, sharing every profile-neutral shard object. Building the legs separately re-emits
 /// the shared base shards with retro-aware content in the second leg and recompiles all of them.
 /// </summary>
-internal enum BuildProfile { Base, RetroRewind, Both }
+internal enum BuildProfile { Base, RetroRewind, CtgpClassic, Both }
 
 internal sealed class LocalBuildService
 {
@@ -25,7 +25,8 @@ internal sealed class LocalBuildService
         RetroWfcPayloadMode retroWfcPayloadMode, string? retroWfcOfflinePayloadDirectory,
         CancellationToken cancellationToken, ToolkitFingerprintComponents? toolkitComponents = null,
         bool forceCleanBuild = false, BuildProgressWindow? progress = null,
-        string? retroRewindPackageDirectory = null, string? baseOutputDirectory = null)
+        string? retroRewindPackageDirectory = null, string? baseOutputDirectory = null,
+        string? ctgpClassicPackageDirectory = null)
     {
         var workspace = InstalledLayout.Workspace(installStaging);
         var toolkit = InstalledLayout.Toolkit(installStaging);
@@ -33,6 +34,9 @@ internal sealed class LocalBuildService
         if (!File.Exists(script)) throw new FileNotFoundException("The local build script is missing.", script);
 
         var buildsRetro = profile is BuildProfile.RetroRewind or BuildProfile.Both;
+        var buildsCtgp = profile == BuildProfile.CtgpClassic;
+        if (buildsCtgp && string.IsNullOrWhiteSpace(ctgpClassicPackageDirectory))
+            throw new ArgumentException("CTGP Classic requires a package directory.");
         if (!buildsRetro && retroWfcPayloadMode != RetroWfcPayloadMode.NotApplicable)
             throw new ArgumentException("The base build cannot select a Retro-WFC payload.");
         if (buildsRetro && retroWfcPayloadMode == RetroWfcPayloadMode.NotApplicable)
@@ -44,6 +48,8 @@ internal sealed class LocalBuildService
         if (retroRewindPackageDirectory is not null)
             retroRewindPackageDirectory = RetroRewindSource.ResolveRetroRewind6(
                 retroRewindPackageDirectory);
+        if (ctgpClassicPackageDirectory is not null)
+            ctgpClassicPackageDirectory = Path.GetFullPath(ctgpClassicPackageDirectory);
         if (retroWfcPayloadMode == RetroWfcPayloadMode.Online)
             retroWfcOfflinePayloadDirectory =
                 InputValidation.ValidateStagedRetroWfcPayloadDirectory(retroWfcOfflinePayloadDirectory!);
@@ -56,6 +62,7 @@ internal sealed class LocalBuildService
             {
                 BuildProfile.Base => "base",
                 BuildProfile.RetroRewind => "retro-rewind",
+                BuildProfile.CtgpClassic => "ctgpclassic",
                 _ => "both"
             },
             "-OutputDirectory", outputDirectory
@@ -81,6 +88,11 @@ internal sealed class LocalBuildService
         {
             arguments.Add("-RetroRewindPackageDirectory");
             arguments.Add(retroRewindPackageDirectory);
+        }
+        if (ctgpClassicPackageDirectory is not null)
+        {
+            arguments.Add("-CtgpClassicPackageDirectory");
+            arguments.Add(ctgpClassicPackageDirectory);
         }
         if (retroWfcPayloadMode == RetroWfcPayloadMode.Online)
         {
@@ -124,6 +136,7 @@ internal sealed class LocalBuildService
         {
             BuildProfile.Base => [(outputDirectory, "WiiCompiled.exe")],
             BuildProfile.RetroRewind => [(outputDirectory, "RetroRewind.exe")],
+            BuildProfile.CtgpClassic => [(outputDirectory, "CTGPClassic.exe")],
             _ => new[] { (baseOutputDirectory!, "WiiCompiled.exe"), (outputDirectory, "RetroRewind.exe") }
         };
         foreach (var (directory, executableName) in expectedOutputs)
@@ -146,8 +159,12 @@ internal sealed class LocalBuildService
         string retroRewindCompileInputsSha256 = "", string retroWfcPayloadSha256 = "",
         long retroWfcPayloadLength = 0)
     {
-        var executable = Path.Combine(outputDirectory,
-            profile == BuildProfile.Base ? "WiiCompiled.exe" : "RetroRewind.exe");
+        var executable = Path.Combine(outputDirectory, profile switch
+        {
+            BuildProfile.Base => "WiiCompiled.exe",
+            BuildProfile.CtgpClassic => "CTGPClassic.exe",
+            _ => "RetroRewind.exe"
+        });
         if (!File.Exists(executable))
             throw new FileNotFoundException("Cannot record build provenance because the compiled executable is missing.",
                 executable);
@@ -177,7 +194,12 @@ internal sealed class LocalBuildService
 
         var fingerprint = new ProductFingerprint
         {
-            Profile = profile == BuildProfile.Base ? "base" : "retro-rewind",
+            Profile = profile switch
+            {
+                BuildProfile.Base => "base",
+                BuildProfile.CtgpClassic => "ctgpclassic",
+                _ => "retro-rewind"
+            },
             ToolkitFingerprint = toolkitFingerprint,
             DolSha256 = dolSha256,
             RelSha256 = relSha256,

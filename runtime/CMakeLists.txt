@@ -22,6 +22,8 @@ if(NOT CMAKE_BUILD_TYPE STREQUAL "Release")
 endif()
 
 option(MKW_BUILD_PRODUCTS "Build translated WiiCompiled product targets" ON)
+set(MKW_MOD_OUTPUT_NAME "RetroRewind" CACHE STRING
+    "Filename for the generated mod product executable")
 
 # Preprocessor definitions that belong to this project's own code (the runtime,
 # the translated shards and the product glue) and to nothing else. They are

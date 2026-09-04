@@ -23,7 +23,9 @@ internal static class GameLaunchService
         if (state.Status == ProductStatus.Current) return;
         if (state.Status == ProductStatus.Absent)
             throw new InvalidDataException(
-                "Retro Rewind is not installed. Install Retro Rewind through Wheel Wizard first.");
+                profile == BuildProfile.CtgpClassic
+                    ? "CTGP Classic is not installed. Install CTGP Classic through Wheel Wizard first."
+                    : "Retro Rewind is not installed. Install Retro Rewind through Wheel Wizard first.");
 
         throw new InvalidDataException(string.IsNullOrWhiteSpace(state.Detail)
             ? "This product must be repaired through Wheel Wizard before it can be launched."
@@ -37,14 +39,28 @@ internal static class GameLaunchService
         var toolkitFingerprint = installation.ResolveToolkitFingerprint();
         if (profile == BuildProfile.Base)
             return installation.CheckBase(toolkitFingerprint);
+        if (profile == BuildProfile.CtgpClassic)
+            return installation.HasCtgpClassicProduct
+                ? new ProductState(ProductStatus.Current, "")
+                : new ProductState(ProductStatus.Absent, "");
         var canonical = installation.ResolveCanonicalCompileInputs(null, out var canonicalError);
         return installation.CheckRetroRewind(toolkitFingerprint, canonical, canonicalError);
     }
 
     private static int LaunchInstalledProduct(Installation installation, BuildProfile profile)
     {
-        var runtimeRoot = profile == BuildProfile.Base ? installation.BaseDirectory : installation.RetroDirectory;
-        var runtime = profile == BuildProfile.Base ? installation.BaseExecutable : installation.RetroExecutable;
+        var runtimeRoot = profile switch
+        {
+            BuildProfile.Base => installation.BaseDirectory,
+            BuildProfile.CtgpClassic => installation.CtgpClassicDirectory,
+            _ => installation.RetroDirectory
+        };
+        var runtime = profile switch
+        {
+            BuildProfile.Base => installation.BaseExecutable,
+            BuildProfile.CtgpClassic => installation.CtgpClassicExecutable,
+            _ => installation.RetroExecutable
+        };
         if (!File.Exists(runtime))
             throw new FileNotFoundException("The installed recomp is missing. Run the installer again.", runtime);
         if (!File.Exists(Path.Combine(installation.GameDataDirectory, "sys", "fst.bin")))

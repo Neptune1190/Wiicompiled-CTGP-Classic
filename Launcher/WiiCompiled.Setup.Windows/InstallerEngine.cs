@@ -87,6 +87,15 @@ internal sealed class InstallerEngine
         var canonicalRetroRoot = options.RetroDirectoryPath is null
             ? null
             : RetroRewindSource.ResolveRetroRewind6(options.RetroDirectoryPath);
+        var ctgpRoot = options.CtgpDirectoryPath is null
+            ? null
+            : Path.GetFullPath(options.CtgpDirectoryPath);
+        if (ctgpRoot is not null && !File.Exists(Path.Combine(ctgpRoot, "Binaries", "CodeR.pul")))
+            throw new InvalidDataException(
+                "The CTGP Classic folder must contain Binaries\\CodeR.pul.");
+        if (canonicalRetroRoot is not null && ctgpRoot is not null)
+            throw new InvalidOperationException(
+                "Retro Rewind and CTGP Classic cannot be installed in the same operation.");
         ValidateRetroOptions(canonicalRetroRoot, options.RetroWfcPayloadMode, manifest);
 
         var retroCompileInputs = canonicalRetroRoot is null
@@ -140,6 +149,8 @@ internal sealed class InstallerEngine
                     remainingCancellation);
             Publish(staging, installDirectory, canonicalRetroRoot, updatedState,
                 releaseEntries, remainingCancellation);
+            if (ctgpRoot is not null)
+                await BuildAndPublishCtgpAsync(installDirectory, ctgpRoot, manifest, remainingCancellation);
             return;
         }
 
@@ -162,6 +173,45 @@ internal sealed class InstallerEngine
         await PublishToolkitAndReconcileProductsAsync(existing, staging, workspace, manifest,
             previousState, options, canonicalRetroRoot, retroCompileInputs,
             publishGameAssets: reusableGameAssets is null, cancellationToken);
+
+        if (ctgpRoot is not null)
+            await BuildAndPublishCtgpAsync(installDirectory, ctgpRoot, manifest, cancellationToken);
+    }
+
+    private async Task BuildAndPublishCtgpAsync(string installDirectory, string ctgpRoot,
+        PayloadManifest manifest, CancellationToken cancellationToken)
+    {
+        var installation = new Installation(installDirectory);
+        var scratch = InstallScratchSpace.CreateInsideInstall(installDirectory, _reporter);
+        using (scratch)
+        {
+            var output = Path.Combine(scratch.Root, "ctgp-output");
+            var builder = new LocalBuildService(_reporter);
+            var components = ToolkitFingerprint.ComputeComponents(installDirectory, cancellationToken);
+            await builder.BuildAsync(installDirectory, BuildProfile.CtgpClassic, output,
+                RetroWfcPayloadMode.NotApplicable, null, cancellationToken, components,
+                forceCleanBuild: false, progress: null,
+                ctgpClassicPackageDirectory: ctgpRoot);
+            LocalBuildService.WriteFingerprint(output, BuildProfile.CtgpClassic,
+                components.Compile, manifest.ExpectedDolSha256, manifest.ExpectedRelSha256,
+                InputValidation.Sha256File(Path.Combine(ctgpRoot, "Binaries", "CodeR.pul")),
+                RetroWfcPayloadMode.NotApplicable);
+
+            var entries = new List<InstallTransactionEntry>
+            {
+                InstallTransactionEntry.Directory(output, installation.CtgpClassicDirectory)
+            };
+            var statePath = Path.Combine(scratch.Root, InstalledLayout.InstallStateFileName);
+            var state = installation.ReadInstallState() ?? new InstallState { InstallDir = installDirectory };
+            state.CtgpClassicInstalled = true;
+            state.DolSha256 = manifest.ExpectedDolSha256;
+            state.RelSha256 = manifest.ExpectedRelSha256;
+            JsonState.Write(statePath, state);
+            entries.Add(InstallTransactionEntry.File(statePath, installation.InstallStatePath));
+            using var transaction = InstallTransaction.Begin(installDirectory, _reporter, entries.ToArray());
+            transaction.Publish();
+            transaction.Commit();
+        }
     }
 
 

@@ -6,10 +6,11 @@ param(
     # graph, which shares every profile-neutral shard object between them. Building the
     # legs separately recompiles all of mkw_base_shared in the second leg, because the
     # retro-aware shard emission changes the content identity of every base_common shard.
-    [Parameter(Mandatory)] [ValidateSet('base', 'retro-rewind', 'both')] [string]$Profile,
+    [Parameter(Mandatory)] [ValidateSet('base', 'retro-rewind', 'ctgpclassic', 'both')] [string]$Profile,
     [Parameter(Mandatory)] [string]$OutputDirectory,
     [string]$BaseOutputDirectory,
     [string]$RetroRewindPackageDirectory,
+    [string]$CtgpClassicPackageDirectory,
     [string]$RetroWfcOfflineDirectory,
     [ValidateSet('offline', 'downloaded')] [string]$RetroWfcPayloadOrigin = 'offline',
     [switch]$SkipRetroWfcPayload,
@@ -135,6 +136,8 @@ if (-not [string]::IsNullOrWhiteSpace($RetroWfcOfflineDirectory)) {
 }
 $hasOfflineRetroWfc = -not [string]::IsNullOrWhiteSpace($RetroWfcOfflineDirectory)
 $buildsRetro = $Profile -in @('retro-rewind', 'both')
+$buildsCtgp = $Profile -eq 'ctgpclassic'
+$buildsMod = $buildsRetro -or $buildsCtgp
 if (-not $buildsRetro -and ($hasOfflineRetroWfc -or $SkipRetroWfcPayload)) {
     throw 'Retro-WFC payload options are valid only for a Retro Rewind build.'
 }
@@ -143,6 +146,12 @@ if ($buildsRetro -and ($hasOfflineRetroWfc -eq [bool]$SkipRetroWfcPayload)) {
 }
 if (-not $buildsRetro -and -not [string]::IsNullOrWhiteSpace($RetroRewindPackageDirectory)) {
     throw '-RetroRewindPackageDirectory is valid only for a Retro Rewind build.'
+}
+if (-not $buildsCtgp -and -not [string]::IsNullOrWhiteSpace($CtgpClassicPackageDirectory)) {
+    throw '-CtgpClassicPackageDirectory is valid only for a CTGP Classic build.'
+}
+if ($buildsCtgp -and -not [string]::IsNullOrWhiteSpace($RetroRewindPackageDirectory)) {
+    throw 'CTGP Classic cannot use -RetroRewindPackageDirectory.'
 }
 if ($Profile -eq 'both' -and [string]::IsNullOrWhiteSpace($BaseOutputDirectory)) {
     throw "-BaseOutputDirectory is required with -Profile both; -OutputDirectory receives the Retro Rewind product."
@@ -171,6 +180,11 @@ $retroRoot = if ([string]::IsNullOrWhiteSpace($RetroRewindPackageDirectory)) {
     Join-Path $Workspace 'PulsarPacks\completed\RetroRewind\RetroRewind6'
 } else {
     $RetroRewindPackageDirectory
+}
+$ctgpRoot = if ([string]::IsNullOrWhiteSpace($CtgpClassicPackageDirectory)) {
+    Join-Path $Workspace 'ctgpclassic'
+} else {
+    [IO.Path]::GetFullPath($CtgpClassicPackageDirectory)
 }
 
 foreach ($required in @(
@@ -240,7 +254,7 @@ try {
                 (Join-Path $generated 'base_translation_mod_awareness.json'))
             $reuseBase = -not ($artifacts | Where-Object { -not (Test-Path -LiteralPath $_ -PathType Leaf) })
         }
-        if ($buildsRetro) {
+        if ($buildsMod) {
             # The translator discovers mods through the project file's workspace-relative profile
             # paths, and both the base and the mod leg block leaf inlining at every address those
             # profiles patch. A staged install workspace ships without any mod payload, so the
@@ -256,14 +270,16 @@ try {
             }
         }
 
-        if ($reuseBase -and $buildsRetro) {
+        if ($reuseBase -and $buildsMod) {
             # The base translation bakes leaf-inlining and residency decisions around the mod patch
             # sets it knew about when it ran, and it records that knowledge as a modPatchAwareness
             # stamp. A base tree that never saw this Code.pul would silently bake vanilla code into
             # the modded product, so it may only be reused once that has been ruled out.
-            $retroCodePul = Join-Path $retroRoot 'Binaries\Code.pul'
-            Assert-File $retroCodePul 'Retro Rewind Code.pul'
-            $pulSha = Get-MkwFileSha256 $retroCodePul
+            $awarenessRoot = if ($buildsCtgp) { $ctgpRoot } else { $retroRoot }
+            $awarenessCodePulName = if ($buildsCtgp) { 'CodeR.pul' } else { 'Code.pul' }
+            $awarenessCodePul = Join-Path $awarenessRoot (Join-Path 'Binaries' $awarenessCodePulName)
+            Assert-File $awarenessCodePul 'Selected mod Code.pul'
+            $pulSha = Get-MkwFileSha256 $awarenessCodePul
             # The metadata file is tens of megabytes of machine-written JSON; a raw substring probe
             # for the uniquely named stamp field avoids a multi-minute ConvertFrom-Json parse.
             $rawMetadata = [IO.File]::ReadAllText($baseMetadata)
@@ -274,8 +290,9 @@ try {
                 # decide that - it takes parsing the Kamek patch set against the recorded translated
                 # function ranges - and it fails closed, so anything but exit 0 retranslates.
                 & $translator @(
-                    'check-base-mod-awareness', '--project', $project, '--profile', 'retro-rewind',
-                    '--translation-output-metadata', $baseMetadata, '--code-pul', $retroCodePul
+                    'check-base-mod-awareness', '--project', $project, '--profile',
+                    $(if ($buildsCtgp) { 'ctgpclassic' } else { 'retro-rewind' }),
+                    '--translation-output-metadata', $baseMetadata, '--code-pul', $awarenessCodePul
                 ) | Write-Host
                 if ($LASTEXITCODE -ne 0) {
                     Write-MkwBuildStep 'retranslate-base' 'The base translation is stale; retranslating the base game for the new Code.pul'
@@ -313,18 +330,24 @@ try {
             }
         }
 
-        if ($buildsRetro) {
-            $codePul = Join-Path $retroRoot 'Binaries\Code.pul'
-            Assert-File $codePul 'Retro Rewind Code.pul'
-            $retroOut = Join-Path $Workspace 'build\mods\retro_rewind_full_cpp'
+        if ($buildsMod) {
+            $modRoot = if ($buildsCtgp) { $ctgpRoot } else { $retroRoot }
+            $codePulName = if ($buildsCtgp) { 'CodeR.pul' } else { 'Code.pul' }
+            $codePul = Join-Path $modRoot (Join-Path 'Binaries' $codePulName)
+            Assert-File $codePul 'Selected mod Code.pul'
+            $modProfile = if ($buildsCtgp) { 'ctgpclassic' } else { 'retro-rewind' }
+            $modName = if ($buildsCtgp) { 'CTGP Classic' } else { 'Retro Rewind' }
+            $modOut = if ($buildsCtgp) { Join-Path $Workspace 'build\mods\ctgpclassic_full_cpp' } else { Join-Path $Workspace 'build\mods\retro_rewind_full_cpp' }
             $translateModArguments = @(
-                'translate-mod', '--project', $project, '--profile', 'retro-rewind',
+                'translate-mod', '--project', $project, '--profile', $modProfile,
                 '--base-manifest', $baseManifest, '--base-translation-output-metadata', $baseMetadata,
-                '--code-pul', $codePul, '--mod-root', $retroRoot, '--mod-name', 'Retro Rewind',
-                '--region', 'P', '--out', $retroOut, '--prefer-cached-inputs', '--emit-cpp',
+                '--code-pul', $codePul, '--mod-root', $modRoot, '--mod-name', $modName,
+                '--region', 'P', '--out', $modOut, '--prefer-cached-inputs', '--emit-cpp',
                 '--threads', $translatorThreads
             )
-            if ($SkipRetroWfcPayload) {
+            if ($buildsCtgp) {
+                $translateModArguments += '--skip-retro-wfc'
+            } elseif ($SkipRetroWfcPayload) {
                 $translateModArguments += '--skip-retro-wfc'
             } elseif (-not [string]::IsNullOrWhiteSpace($RetroWfcOfflineDirectory)) {
                 $offlineRoot = [IO.Path]::GetFullPath($RetroWfcOfflineDirectory)
@@ -346,10 +369,10 @@ try {
             '--base-functions-dir', $functions,
             '--native-source-dir', (Join-Path $Workspace 'runtime\src'), '--out', $shards
         )
-        if ($buildsRetro) {
-            $retroOut = Join-Path $Workspace 'build\mods\retro_rewind_full_cpp'
-            $shardArgs += @('--resolved-profile', (Join-Path $retroOut 'resolved_dispatch_profile.json'),
-                '--retro-cpp-dir', (Join-Path $retroOut 'cpp'))
+        if ($buildsMod) {
+            $modOut = if ($buildsCtgp) { Join-Path $Workspace 'build\mods\ctgpclassic_full_cpp' } else { Join-Path $Workspace 'build\mods\retro_rewind_full_cpp' }
+            $shardArgs += @('--resolved-profile', (Join-Path $modOut 'resolved_dispatch_profile.json'),
+                '--retro-cpp-dir', (Join-Path $modOut 'cpp'))
         }
         Invoke-Checked $translator $shardArgs 'Preparing local native build shards' -StepId 'emit-build-shards'
 
@@ -389,7 +412,9 @@ try {
             -SourceDirectory (Join-Path $Workspace 'runtime') -BuildDirectory $build `
             -Ninja $ninja -CCompiler $cc -CxxCompiler $cxx -ResourceCompiler $windres `
             -DependenciesDirectory $dependencies -NativePrebuiltDirectory $nativePrebuilt `
-            -AdditionalArguments @("-DMKW_TRANSLATED_COMPILE_JOBS=$translatedJobs")
+            -AdditionalArguments @(
+                "-DMKW_TRANSLATED_COMPILE_JOBS=$translatedJobs",
+                "-DMKW_MOD_OUTPUT_NAME=$(if ($buildsCtgp) { 'CTGPClassic' } else { 'RetroRewind' })")
         Invoke-Checked $cmake $configure 'Configuring the bundled native toolchain' -StepId 'configure-native'
         if (-not [string]::IsNullOrWhiteSpace($NativeToolchainFingerprint)) {
             [ordered]@{ SchemaVersion = 1; NativeToolchainFingerprint = $NativeToolchainFingerprint } |
@@ -398,6 +423,7 @@ try {
         $targets = switch ($Profile) {
             'base' { @('WiiCompiled') }
             'retro-rewind' { @('RetroRewind') }
+            'ctgpclassic' { @('RetroRewind') }
             'both' { @('WiiCompiled', 'RetroRewind') }
         }
         $buildArguments = @('--build', $build)
@@ -410,11 +436,11 @@ try {
         $relSha = Get-MkwFileSha256 (Join-Path $assets 'StaticR.rel')
         $compilerSha = Get-MkwFileSha256 (Join-Path $toolchainBin 'clang-22.exe')
 
-        function Publish-BuiltProduct([string]$Target, [string]$Destination, [string]$ProvenanceProfile) {
+        function Publish-BuiltProduct([string]$Target, [string]$ExecutableName, [string]$Destination, [string]$ProvenanceProfile) {
             Reset-LocalDirectory $Destination
-            $exe = Join-Path $build "$Target.exe"
+            $exe = Join-Path $build "$ExecutableName.exe"
             Assert-File $exe 'Locally compiled game executable'
-            Copy-Item -LiteralPath $exe -Destination (Join-Path $Destination "$Target.exe")
+            Copy-Item -LiteralPath $exe -Destination (Join-Path $Destination "$ExecutableName.exe")
             foreach ($name in @('dxcompiler.dll','dxil.dll','libc++.dll','libpng16.dll','libunwind.dll','libz.dll','SDL3.dll','sqlite3.dll','webgpu_dawn.dll','z.dll','noshaders.zip','dsp_coef.bin','initial_pipeline_cache.db')) {
                 $file = Join-Path $build $name
                 if (Test-Path -LiteralPath $file -PathType Leaf) { Copy-Item -LiteralPath $file -Destination $Destination }
@@ -430,13 +456,14 @@ try {
                 }
             }
             $isRetro = $ProvenanceProfile -eq 'retro-rewind'
+            $isCtgp = $ProvenanceProfile -eq 'ctgpclassic'
             $provenance = [ordered]@{
                 SchemaVersion = 1
                 Profile = $ProvenanceProfile
                 BuiltUtc = [DateTime]::UtcNow.ToString('O')
                 DolSha256 = $dolSha
                 RelSha256 = $relSha
-                CodePulSha256 = if ($isRetro) { Get-MkwFileSha256 (Join-Path $retroRoot 'Binaries\Code.pul') } else { $null }
+                CodePulSha256 = if ($isRetro) { Get-MkwFileSha256 (Join-Path $retroRoot 'Binaries\Code.pul') } elseif ($isCtgp) { Get-MkwFileSha256 (Join-Path $ctgpRoot 'Binaries\CodeR.pul') } else { $null }
                 RetroWfcPayloadMode = if (-not $isRetro) { $null } elseif ($SkipRetroWfcPayload) { 'skipped' } else { $RetroWfcPayloadOrigin }
                 RetroWfcPayloadSha256 = if ($isRetro -and -not $SkipRetroWfcPayload) { Get-MkwFileSha256 (Join-Path $RetroWfcOfflineDirectory 'binary\payload.RMCPD00.bin') } else { $null }
                 RetroWfcPayloadLength = if ($isRetro -and -not $SkipRetroWfcPayload) { (Get-Item -LiteralPath (Join-Path $RetroWfcOfflineDirectory 'binary\payload.RMCPD00.bin')).Length } else { $null }
@@ -446,12 +473,14 @@ try {
         }
 
         if ($Profile -eq 'both') {
-            Publish-BuiltProduct 'WiiCompiled' $BaseOutputDirectory 'base'
-            Publish-BuiltProduct 'RetroRewind' $OutputDirectory 'retro-rewind'
+            Publish-BuiltProduct 'WiiCompiled' 'WiiCompiled' $BaseOutputDirectory 'base'
+            Publish-BuiltProduct 'RetroRewind' 'RetroRewind' $OutputDirectory 'retro-rewind'
         } elseif ($Profile -eq 'retro-rewind') {
-            Publish-BuiltProduct 'RetroRewind' $OutputDirectory 'retro-rewind'
+            Publish-BuiltProduct 'RetroRewind' 'RetroRewind' $OutputDirectory 'retro-rewind'
+        } elseif ($Profile -eq 'ctgpclassic') {
+            Publish-BuiltProduct 'RetroRewind' 'CTGPClassic' $OutputDirectory 'ctgpclassic'
         } else {
-            Publish-BuiltProduct 'WiiCompiled' $OutputDirectory 'base'
+            Publish-BuiltProduct 'WiiCompiled' 'WiiCompiled' $OutputDirectory 'base'
         }
         Write-Host "MKWCBUILD:OUTPUT=$OutputDirectory"
     } finally { Pop-Location }

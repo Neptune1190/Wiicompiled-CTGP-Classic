@@ -11,12 +11,13 @@ internal static class ConsoleCommands
         Console.Out.WriteLine("Wheel Wizard is the graphical interface for installing and launching WiiCompiled.");
         Console.Out.WriteLine();
         Console.Out.WriteLine("Commands:");
-        Console.Out.WriteLine("  --silent --game <image> --install-dir <dir> [--retro-dir <folder>] [--portable]");
-        Console.Out.WriteLine("  --verify-inputs --game <image> [--retro-dir <folder>]");
-        Console.Out.WriteLine("  --check-products [--install-dir <dir>] [--retro-dir <folder>] [--progress-json]");
+        Console.Out.WriteLine("  --silent --game <image> --install-dir <dir> [--retro-dir <folder>] [--ctgp-dir <folder>] [--portable]");
+        Console.Out.WriteLine("  --verify-inputs --game <image> [--retro-dir <folder>] [--ctgp-dir <folder>]");
+        Console.Out.WriteLine("  --check-products [--install-dir <dir>] [--retro-dir <folder>] [--ctgp-dir <folder>] [--progress-json]");
         Console.Out.WriteLine("  --repair-products --install-dir <dir> --retro-dir <folder> " +
                              "(--download-retro-wfc-payload | --skip-retro-wfc-payload) [--progress-json]");
-        Console.Out.WriteLine("  --launch-retro | --launch-base");
+        Console.Out.WriteLine("  --repair-products --install-dir <dir> --ctgp-dir <folder> [--progress-json]");
+        Console.Out.WriteLine("  --launch-retro | --launch-ctgp | --launch-base");
         Console.Out.WriteLine("  --uninstall --install-dir <dir>");
         Console.Out.WriteLine("  --version");
         return 0;
@@ -76,6 +77,11 @@ internal static class ConsoleCommands
                 reporter?.Progress(InstallStages.Validate, "Checking the Retro Rewind folder...", 80);
                 _ = CompileInputsFingerprint.Compute(command.RetroDirectoryPath);
             }
+            if (command.CtgpDirectoryPath is not null)
+            {
+                reporter?.Progress(InstallStages.Validate, "Checking the CTGP Classic folder...", 80);
+                ValidateCtgpDirectory(command.CtgpDirectoryPath);
+            }
             reporter?.Success(command.InstallDirectory is null
                 ? ProductInfo.DefaultInstallDirectory
                 : Path.GetFullPath(command.InstallDirectory));
@@ -117,6 +123,7 @@ internal static class ConsoleCommands
             {
                 GamePath = command.GamePath!,
                 RetroDirectoryPath = command.RetroDirectoryPath,
+                CtgpDirectoryPath = command.CtgpDirectoryPath,
                 RetroWfcPayloadMode = command.RetroWfcPayloadMode,
                 InstallDirectory = installDirectory,
                 Portable = command.Portable
@@ -164,6 +171,9 @@ internal static class ConsoleCommands
             if (!command.ProgressJson)
                 Console.Out.WriteLine(
                     $"retro-rewind: {report.RetroRewind.Reason} {report.RetroRewind.Detail}".TrimEnd());
+            if (!command.ProgressJson)
+                Console.Out.WriteLine(
+                    $"ctgpclassic: {report.CtgpClassic.Reason} {report.CtgpClassic.Detail}".TrimEnd());
             Console.Out.Flush();
             reporter?.Success(installation.Root);
             return report.RebuildRequired ? 2 : 0;
@@ -211,6 +221,14 @@ internal static class ConsoleCommands
             using var operationLock = InstallOperationLock.Acquire(installDirectory, reporter);
             PortableInstallHealing.HealMovedInstall(installation, reporter);
 
+            if (command.CtgpDirectoryPath is not null)
+            {
+                await RepairCtgpClassic(installation, command.CtgpDirectoryPath,
+                    cancellationToken, reporter);
+                ndjson?.Success(installDirectory);
+                return 0;
+            }
+
             cancellationToken.ThrowIfCancellationRequested();
             var service = new ProductRepairService(installation, reporter);
             using var scratch = InstallScratchSpace.CreateInsideInstall(installDirectory, reporter);
@@ -253,18 +271,63 @@ internal static class ConsoleCommands
         }
     }
 
+    private static void ValidateCtgpDirectory(string directory)
+    {
+        var root = Path.GetFullPath(directory);
+        var codePul = Path.Combine(root, "Binaries", "CodeR.pul");
+        if (!Directory.Exists(root) || !File.Exists(codePul))
+            throw new InvalidDataException(
+                "The CTGP Classic folder must contain Binaries\\CodeR.pul.");
+    }
+
+    private static async Task RepairCtgpClassic(Installation installation, string directory,
+        CancellationToken cancellationToken, IInstallReporter reporter)
+    {
+        ValidateCtgpDirectory(directory);
+        if (!installation.HasToolkit)
+            throw new InvalidDataException(
+                "The installed recompilation toolkit is missing. Apply the current setup release before repairing CTGP Classic.");
+
+        var root = Path.GetFullPath(directory);
+        var toolkitFingerprint = installation.ResolveToolkitFingerprint();
+        if (string.IsNullOrWhiteSpace(toolkitFingerprint))
+            throw new InvalidDataException("The installed recompilation toolkit cannot be identified safely.");
+
+        using var scratch = InstallScratchSpace.CreateInsideInstall(installation.Root, reporter);
+        var components = ToolkitFingerprint.ComputeComponents(installation.Root, cancellationToken);
+        var output = Path.Combine(scratch.Root, "ctgp-output");
+        var builder = new LocalBuildService(reporter);
+        await builder.BuildAsync(installation.Root, BuildProfile.CtgpClassic, output,
+            RetroWfcPayloadMode.NotApplicable, null, cancellationToken, components,
+            progress: null, ctgpClassicPackageDirectory: root);
+        LocalBuildService.WriteFingerprint(output, BuildProfile.CtgpClassic,
+            components.Compile, installation.ReadInstallState()?.DolSha256 ?? "",
+            installation.ReadInstallState()?.RelSha256 ?? "",
+            InputValidation.Sha256File(Path.Combine(root, "Binaries", "CodeR.pul")),
+            RetroWfcPayloadMode.NotApplicable);
+        var state = installation.ReadInstallState() ?? new InstallState { InstallDir = installation.Root };
+        state.CtgpClassicInstalled = true;
+        var statePath = Path.Combine(scratch.Root, InstalledLayout.InstallStateFileName);
+        JsonState.Write(statePath, state);
+        using var transaction = InstallTransaction.Begin(installation.Root, reporter,
+            InstallTransactionEntry.Directory(output, installation.CtgpClassicDirectory),
+            InstallTransactionEntry.File(statePath, installation.InstallStatePath));
+        transaction.Publish();
+        transaction.Commit();
+    }
+
     /// <summary>
     /// The <c>products</c> record exactly as the v1 contract defines it: a typed status and a
     /// human-readable detail per product, plus one aggregate. Nothing else is derived, because
     /// nothing else is reported.
     /// </summary>
     internal sealed record ProductsReport(string InstallDirectory,
-        ProductState Base, ProductState RetroRewind)
+        ProductState Base, ProductState RetroRewind, ProductState CtgpClassic)
     {
-        public bool RebuildRequired => Base.ActionRequired || RetroRewind.ActionRequired;
+        public bool RebuildRequired => Base.ActionRequired || RetroRewind.ActionRequired || CtgpClassic.ActionRequired;
 
         public string ActionRequiredDetail => string.Join(" ",
-            new[] { Base, RetroRewind }
+            new[] { Base, RetroRewind, CtgpClassic }
                 .Where(state => state.ActionRequired)
                 .Select(state => state.Detail)
                 .Where(detail => !string.IsNullOrWhiteSpace(detail)));
@@ -299,7 +362,8 @@ internal static class ConsoleCommands
         // or turn the frontend's first-install probe into a repair request.
         new(installation.Root,
             new ProductState(ProductStatus.Absent, "WiiCompiled is not installed here."),
-            new ProductState(ProductStatus.Absent, "Retro Rewind is not installed."));
+            new ProductState(ProductStatus.Absent, "Retro Rewind is not installed."),
+            new ProductState(ProductStatus.Absent, "CTGP Classic is not installed."));
 
     private static ProductsReport BuildReport(Installation installation,
         RetroRewindCompileInputs? canonical, string? canonicalError,
@@ -309,7 +373,8 @@ internal static class ConsoleCommands
         return new ProductsReport(installation.Root,
             installation.CheckBase(toolkitFingerprint),
             installation.CheckRetroRewind(toolkitFingerprint, canonical, canonicalError,
-                cachedRetroWfcPayloadMatches));
+                cachedRetroWfcPayloadMatches),
+            installation.CheckCtgpClassic(toolkitFingerprint));
     }
 
     /// <summary>
@@ -325,5 +390,6 @@ internal static class ConsoleCommands
             rebuildRequired = report.RebuildRequired,
             @base = new { status = report.Base.Reason, detail = report.Base.Detail },
             retroRewind = new { status = report.RetroRewind.Reason, detail = report.RetroRewind.Detail }
+            ,ctgpClassic = new { status = report.CtgpClassic.Reason, detail = report.CtgpClassic.Detail }
         });
 }

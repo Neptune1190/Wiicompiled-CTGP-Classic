@@ -66,3 +66,23 @@ profiles:
         - section: Retro Rewind
           option: Pack
           choice: 1
+
+  ctgpclassic:
+    enabled: true
+    requires_game_id: RMCP01
+    requires_dol_sha256: 80d18895b39c63bd80f457398bfcbb91b7d16ac116a41a88967e954080155b05
+    code_pul: ctgpclassic/Binaries/CodeR.pul
+    mod_root: ctgpclassic
+    region: P
+    module_guest_base: 0x81800000
+    module_link_base: 0x803992E0
+    output: build/mods/ctgpclassic_full_cpp
+    riivolution:
+      xml: ../Riivolution/ctgpclassic.xml
+      options:
+        - section: CTGP Classic v4
+          option: CTGP Classic + Save To SD Options
+          choice: 1
+        - section: CTGP Classic v4
+          option: My Stuff
+          choice: 1

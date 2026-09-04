@@ -11,6 +11,7 @@ internal enum AppMode
     SelfTest,
     LaunchBase,
     LaunchRetro,
+    LaunchCtgp,
     CheckProducts,
     RepairProducts,
     Version,
@@ -28,6 +29,7 @@ internal sealed record ModeRules
     public bool AcceptsGame { get; init; }
     public bool RequiresGame { get; init; }
     public bool AcceptsRetroDirectory { get; init; }
+    public bool AcceptsCtgpDirectory { get; init; }
     public bool RequiresRetroDirectory { get; init; }
     public bool AcceptsPayloadMode { get; init; }
     public bool RequiresInstallDirectory { get; init; }
@@ -40,6 +42,7 @@ internal sealed class CommandLine
     public AppMode Mode { get; private set; } = AppMode.Help;
     public string? GamePath { get; private set; }
     public string? RetroDirectoryPath { get; private set; }
+    public string? CtgpDirectoryPath { get; private set; }
     public RetroWfcPayloadMode RetroWfcPayloadMode { get; private set; }
     public string? InstallDirectory { get; private set; }
     public bool Quiet { get; private set; }
@@ -66,6 +69,7 @@ internal sealed class CommandLine
                 case "--self-test": result.Mode = AppMode.SelfTest; break;
                 case "--launch-base": result.Mode = AppMode.LaunchBase; break;
                 case "--launch-retro": result.Mode = AppMode.LaunchRetro; break;
+                case "--launch-ctgp": result.Mode = AppMode.LaunchCtgp; break;
                 case "--check-products": result.Mode = AppMode.CheckProducts; break;
                 case "--repair-products": result.Mode = AppMode.RepairProducts; break;
                 case "--portable": result.Portable = true; break;
@@ -75,6 +79,7 @@ internal sealed class CommandLine
                 case "--progress-json": result.ProgressJson = true; break;
                 case "--game": result.GamePath = RequireValue(args, ref i); break;
                 case "--retro-dir": result.RetroDirectoryPath = RequireValue(args, ref i); break;
+                case "--ctgp-dir": result.CtgpDirectoryPath = RequireValue(args, ref i); break;
                 case "--download-retro-wfc-payload":
                     if (result.RetroWfcPayloadMode != RetroWfcPayloadMode.NotApplicable)
                         throw new ArgumentException("Choose only one Retro-WFC payload mode.");
@@ -102,26 +107,30 @@ internal sealed class CommandLine
             Flag = "--silent",
             AcceptsProgressJson = true, AcceptsGame = true, RequiresGame = true,
             AcceptsRetroDirectory = true, AcceptsPayloadMode = true,
+            AcceptsCtgpDirectory = true,
             AcceptsPortable = true
         },
         [AppMode.VerifyInputs] = new ModeRules
         {
             Flag = "--verify-inputs",
             AcceptsProgressJson = true, AcceptsGame = true, RequiresGame = true,
-            AcceptsRetroDirectory = true
+            AcceptsRetroDirectory = true, AcceptsCtgpDirectory = true
         },
         [AppMode.CheckProducts] = new ModeRules
         {
-            Flag = "--check-products", AcceptsProgressJson = true, AcceptsRetroDirectory = true
+            Flag = "--check-products", AcceptsProgressJson = true, AcceptsRetroDirectory = true,
+            AcceptsCtgpDirectory = true
         },
         [AppMode.RepairProducts] = new ModeRules
         {
             Flag = "--repair-products",
-            AcceptsProgressJson = true, AcceptsRetroDirectory = true, RequiresRetroDirectory = true,
+            AcceptsProgressJson = true, AcceptsRetroDirectory = true,
+            AcceptsCtgpDirectory = true,
             AcceptsPayloadMode = true, RequiresInstallDirectory = true
         },
         [AppMode.LaunchBase] = new ModeRules { Flag = "--launch-base" },
         [AppMode.LaunchRetro] = new ModeRules { Flag = "--launch-retro" },
+        [AppMode.LaunchCtgp] = new ModeRules { Flag = "--launch-ctgp" },
         [AppMode.Uninstall] = new ModeRules { Flag = "--uninstall", RequiresInstallDirectory = true },
         [AppMode.SilentUninstall] = new ModeRules
         {
@@ -148,6 +157,7 @@ internal sealed class CommandLine
 
         Reject(GamePath is not null && !rules.AcceptsGame, "--game");
         Reject(RetroDirectoryPath is not null && !rules.AcceptsRetroDirectory, "--retro-dir");
+        Reject(CtgpDirectoryPath is not null && !rules.AcceptsCtgpDirectory, "--ctgp-dir");
         Reject(ProgressJson && !rules.AcceptsProgressJson, "--progress-json");
         Reject(PayloadRootPath is not null && !rules.RequiresPayloadRoot, "--payload-root");
         Reject(Portable && !rules.AcceptsPortable, "--portable");
@@ -170,6 +180,12 @@ internal sealed class CommandLine
             InstallDirectory = ProductInfo.DefaultInstallDirectory;
         if (rules.RequiresInstallDirectory && string.IsNullOrWhiteSpace(InstallDirectory))
             throw new ArgumentException($"--install-dir is required with {rules.Flag}.");
+
+        if (RetroDirectoryPath is not null && CtgpDirectoryPath is not null)
+            throw new ArgumentException("--retro-dir and --ctgp-dir cannot be supplied together. Choose one mod product.");
+
+        if (Mode == AppMode.RepairProducts && RetroDirectoryPath is null && CtgpDirectoryPath is null)
+            throw new ArgumentException("--repair-products requires either --retro-dir or --ctgp-dir.");
 
         // The Retro Rewind source and a payload decision are a pair. a base-only operation
         // has no payload to decide.

@@ -61,6 +61,10 @@ public sealed class KamekPulFile
     private static bool TryParseCombined(byte[] data, out KamekPulFile file)
     {
         file = null!;
+        if (TryParseFiveRegionCombined(data, out file))
+        {
+            return true;
+        }
         if (data.Length < 0x10 + KamekChunk.HeaderSize)
         {
             return false;
@@ -76,6 +80,35 @@ public sealed class KamekPulFile
             if (sizes[i] != 0)
             {
                 nonzeroCount++;
+            }
+        }
+
+        // Some older Kamek/Pulsar distributors prepend one wrapper word to
+        // every regional chunk. The outer size still describes the Kamek
+        // chunk, so the wrapper adds four bytes to each occupied region.
+        if (nonzeroCount > 0 && totalSize + nonzeroCount * sizeof(uint) == data.Length)
+        {
+            var wrappedChunks = new List<KamekChunk>();
+            var wrappedOffset = 0x10;
+            var valid = true;
+            for (var i = 0; i < 4; i++)
+            {
+                var size = sizes[i];
+                if (size == 0) continue;
+                if (wrappedOffset + sizeof(uint) + size > data.Length ||
+                    !KamekChunk.HasMagic(data, wrappedOffset + sizeof(uint)))
+                {
+                    valid = false;
+                    break;
+                }
+                wrappedChunks.Add(KamekChunk.Parse(data, wrappedOffset + sizeof(uint),
+                    checked((int)size), i));
+                wrappedOffset += checked((int)size) + sizeof(uint);
+            }
+            if (valid && wrappedOffset == data.Length)
+            {
+                file = new KamekPulFile(true, sizes.ToArray(), wrappedChunks);
+                return true;
             }
         }
 
@@ -101,6 +134,53 @@ public sealed class KamekPulFile
 
             chunks.Add(KamekChunk.Parse(data, offset, checked((int)size), i));
             offset += checked((int)size);
+        }
+
+        file = new KamekPulFile(true, sizes.ToArray(), chunks);
+        return true;
+    }
+
+    private static bool TryParseFiveRegionCombined(byte[] data, out KamekPulFile file)
+    {
+        file = null!;
+        const int tableSize = 5 * sizeof(uint);
+        if (data.Length < tableSize + KamekChunk.HeaderSize)
+        {
+            return false;
+        }
+
+        Span<uint> sizes = stackalloc uint[5];
+        long totalSize = tableSize;
+        var nonzeroCount = 0;
+        for (var i = 0; i < sizes.Length; i++)
+        {
+            sizes[i] = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(i * sizeof(uint), sizeof(uint)));
+            totalSize += sizes[i];
+            if (sizes[i] != 0) nonzeroCount++;
+        }
+
+        if (nonzeroCount == 0 || totalSize != data.Length)
+        {
+            return false;
+        }
+
+        var chunks = new List<KamekChunk>();
+        var offset = tableSize;
+        for (var i = 0; i < sizes.Length; i++)
+        {
+            var size = sizes[i];
+            if (size == 0) continue;
+            if (offset + size > data.Length || !KamekChunk.HasMagic(data, offset))
+            {
+                return false;
+            }
+            chunks.Add(KamekChunk.Parse(data, offset, checked((int)size), i));
+            offset += checked((int)size);
+        }
+
+        if (offset != data.Length)
+        {
+            return false;
         }
 
         file = new KamekPulFile(true, sizes.ToArray(), chunks);

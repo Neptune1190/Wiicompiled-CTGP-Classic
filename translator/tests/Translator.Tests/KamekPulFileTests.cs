@@ -71,6 +71,47 @@ public class KamekPulFileTests
     }
 
     [Fact]
+    public void ParsesFiveRegionCombinedChunks()
+    {
+        var chunks = Enumerable.Range(0, 5)
+            .Select(index => BuildChunk((uint)(0x10 + index), [0x60, 0x00, 0x00, 0x00],
+                [BuildCommand(KamekCommandId.Write8, true, 0x805850BC, [(uint)index])]))
+            .ToArray();
+        var combined = new byte[0x14 + chunks.Sum(chunk => chunk.Length)];
+        var offset = 0x14;
+        for (var index = 0; index < chunks.Length; index++)
+        {
+            WriteU32(combined, index * 4, (uint)chunks[index].Length);
+            chunks[index].CopyTo(combined, offset);
+            offset += chunks[index].Length;
+        }
+
+        var pul = KamekPulFile.Parse(combined);
+
+        Assert.True(pul.IsCombined);
+        Assert.Equal(5, pul.Chunks.Count);
+        Assert.Equal(0x10u, pul.SelectRegion("P").BssSize);
+        Assert.Equal(0x14u, pul.Chunks[4].BssSize);
+    }
+
+    [Fact]
+    public void ParsesRegionalChunksWithLegacyWrapperWord()
+    {
+        var p = BuildChunk(0x10, [0x60, 0x00, 0x00, 0x00],
+            [BuildCommand(KamekCommandId.Write8, true, 0x805850BC, [0x7F])]);
+        var wrapped = new byte[0x10 + sizeof(uint) + p.Length];
+        WriteU32(wrapped, 0, (uint)p.Length);
+        WriteU32(wrapped, 0x10, 0x0004AFD0);
+        p.CopyTo(wrapped, 0x14);
+
+        var pul = KamekPulFile.Parse(wrapped);
+
+        Assert.True(pul.IsCombined);
+        Assert.Equal(0x10u, pul.SelectRegion("P").BssSize);
+        Assert.Equal(KamekCommandId.Write8, pul.SelectRegion("P").Commands.Single().Id);
+    }
+
+    [Fact]
     public void EncodesPpcBranchLikeKamek()
     {
         Assert.Equal(0x48000144u, KamekPpcEncoding.EncodeBranch(0x8053369C, 0x805337E0, link: false));

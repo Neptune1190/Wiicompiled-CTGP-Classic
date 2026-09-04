@@ -99,6 +99,8 @@ internal sealed class Installation
     public string BaseExecutable => Path.Combine(BaseDirectory, "WiiCompiled.exe");
     public string RetroDirectory => Path.Combine(Root, "RetroRewind");
     public string RetroExecutable => Path.Combine(RetroDirectory, "RetroRewind.exe");
+    public string CtgpClassicDirectory => Path.Combine(Root, "CTGPClassic");
+    public string CtgpClassicExecutable => Path.Combine(CtgpClassicDirectory, "CTGPClassic.exe");
     public string GameDataDirectory => Path.Combine(Root, "GameAssets", "DATA");
     public string InstallStatePath => Path.Combine(Root, InstalledLayout.InstallStateFileName);
     public string ToolkitStatePath => Path.Combine(Root, ToolkitState.FileName);
@@ -165,6 +167,7 @@ internal sealed class Installation
                               RequiredNonEmptyToolkitDirectories.All(relative =>
                                   IsNonEmptyRegularDirectory(Path.Combine(Root, relative)));
     public bool HasRetroProduct => File.Exists(RetroExecutable);
+    public bool HasCtgpClassicProduct => File.Exists(CtgpClassicExecutable);
 
     public InstallState? ReadInstallState() => JsonState.TryRead<InstallState>(InstallStatePath);
 
@@ -307,6 +310,32 @@ internal sealed class Installation
         var runtimeAssetsError = ValidateCopiedRuntimeAssets(RetroDirectory, "retro-rewind",
             toolkitFingerprint);
         return runtimeAssetsError is null ? state : new ProductState(ProductStatus.Broken, runtimeAssetsError);
+    }
+
+    public ProductState CheckCtgpClassic(string toolkitFingerprint)
+    {
+        var installState = ReadCurrentInstallState();
+        if (!HasCtgpClassicProduct)
+            return installState?.CtgpClassicInstalled == true
+                ? new ProductState(ProductStatus.Broken,
+                    "CTGP Classic is recorded as installed, but its executable is missing.")
+                : new ProductState(ProductStatus.Absent, "CTGP Classic is not installed.");
+        if (!HasUsableToolkit(toolkitFingerprint)) return MissingToolkit();
+        var fingerprint = ReadProductFingerprint(CtgpClassicDirectory, toolkitFingerprint);
+        if (fingerprint is null)
+            return new ProductState(ProductStatus.Blocked,
+                "The CTGP Classic product has no current build provenance. Repair it through setup.");
+        if (!fingerprint.ToolkitFingerprint.Equals(toolkitFingerprint, StringComparison.Ordinal))
+            return new ProductState(ProductStatus.ToolkitChanged,
+                "CTGP Classic was produced by a different recompilation toolkit.");
+        if (installState is null)
+            return new ProductState(ProductStatus.Blocked,
+                "The installation state is missing, unsupported, or belongs to another directory.");
+        var provenanceError = ValidateProductProvenance(CtgpClassicDirectory, "ctgpclassic", fingerprint,
+            installState);
+        return provenanceError is null
+            ? new ProductState(ProductStatus.Current, "")
+            : new ProductState(ProductStatus.Blocked, provenanceError);
     }
 
     internal ProductState CheckRetroRewindCore(string toolkitFingerprint,

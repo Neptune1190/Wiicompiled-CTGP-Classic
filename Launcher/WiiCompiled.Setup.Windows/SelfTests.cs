@@ -297,6 +297,10 @@ internal static class SelfTests
 
         if (CommandLine.Parse(["--launch-retro"]).Mode != AppMode.LaunchRetro)
             throw new Exception("--launch-retro was not recognised.");
+        if (CommandLine.Parse(["--launch-ctgp"]).Mode != AppMode.LaunchCtgp)
+            throw new Exception("--launch-ctgp was not recognised.");
+        Rejects("Retro Rewind and CTGP cannot be combined", "--silent", "--game", "game.iso",
+            "--retro-dir", "D:\\RetroRewind", "--ctgp-dir", "D:\\CT-MKWII");
 
         var check = CommandLine.Parse([
             "--check-products", "--install-dir", "C:\\Games\\MKW", "--retro-dir", "D:\\RetroRewind",
