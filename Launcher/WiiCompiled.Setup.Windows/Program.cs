@@ -56,9 +56,10 @@ internal static class Program
                 return ConsoleCommands.CheckProducts(command, cancellationSignal.Token);
             }
 
-            if (command.Mode is AppMode.LaunchBase or AppMode.LaunchRetro)
+            if (command.Mode is AppMode.LaunchBase or AppMode.LaunchRetro or AppMode.LaunchCtgp)
                 return GameLaunchService.LaunchAsync(
-                    command.Mode == AppMode.LaunchBase ? BuildProfile.Base : BuildProfile.RetroRewind)
+                    command.Mode == AppMode.LaunchBase ? BuildProfile.Base :
+                    command.Mode == AppMode.LaunchCtgp ? BuildProfile.CtgpClassic : BuildProfile.RetroRewind)
                     .GetAwaiter().GetResult();
 
             if (command.Mode is AppMode.SilentInstall or AppMode.RepairProducts)
