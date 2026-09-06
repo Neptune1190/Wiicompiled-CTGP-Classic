@@ -201,14 +201,6 @@ internal sealed class InstallerEngine
                 InputValidation.Sha256File(Path.Combine(ctgpRoot, "Binaries", "CodeR.pul")),
                 RetroWfcPayloadMode.NotApplicable);
 
-            FileSystemUtilities.CopyDirectory(ctgpRoot, Path.Combine(output, "ctgpclassic"));
-            var xmlSource = Path.Combine(ctgpRoot, "..", "Riivolution", "ctgpclassic.xml");
-            if (!File.Exists(xmlSource))
-                throw new InvalidDataException("The CTGP Classic folder's sibling Riivolution\\ctgpclassic.xml is missing.");
-            var xmlDestination = Path.Combine(output, "Riivolution", "ctgpclassic.xml");
-            Directory.CreateDirectory(Path.GetDirectoryName(xmlDestination)!);
-            File.Copy(xmlSource, xmlDestination, overwrite: true);
-
             var entries = new List<InstallTransactionEntry>
             {
                 InstallTransactionEntry.Directory(output, installation.CtgpClassicDirectory)
