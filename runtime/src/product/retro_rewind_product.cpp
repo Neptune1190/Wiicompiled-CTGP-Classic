@@ -4,7 +4,11 @@ namespace RuntimeProduct {
 
 const Descriptor& Active() noexcept {
     static constexpr Descriptor descriptor{
+#ifdef MKW_CTGP_CLASSIC_PRODUCT
+        Kind::CtgpClassic,
+#else
         Kind::RetroRewind,
+#endif
 #ifdef MKW_CTGP_CLASSIC_PRODUCT
         "CTGP Classic",
 #else

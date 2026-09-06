@@ -7,6 +7,7 @@ namespace RuntimeProduct {
 enum class Kind {
     BaseGame,
     RetroRewind,
+    CtgpClassic,
 };
 
 struct Descriptor {
@@ -20,7 +21,11 @@ struct Descriptor {
 const Descriptor& Active() noexcept;
 
 inline bool IsRetroRewind() noexcept {
-    return Active().kind == Kind::RetroRewind;
+    return Active().kind == Kind::RetroRewind || Active().kind == Kind::CtgpClassic;
+}
+
+inline bool IsCtgpClassic() noexcept {
+    return Active().kind == Kind::CtgpClassic;
 }
 
 } // namespace RuntimeProduct

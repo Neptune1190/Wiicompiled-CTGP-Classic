@@ -218,7 +218,8 @@ const std::filesystem::path& GetRunLogDirectory() {
         const auto secs = std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
 
         std::ostringstream name;
-        name << (RuntimeProduct::IsRetroRewind() ? "retro_rewind" : "base")
+        name << (RuntimeProduct::IsCtgpClassic() ? "ctgpclassic" :
+             RuntimeProduct::IsRetroRewind() ? "retro_rewind" : "base")
              << "_" << secs << "_pid" << pid;
         const std::filesystem::path directory = logRoot / name.str();
         std::filesystem::create_directories(directory, ec);
