@@ -285,9 +285,15 @@ void RegisterDvdOverlayRoot(std::string root) {
     if (relativeRoot.is_relative() && !std::filesystem::is_directory(resolved, ec)) {
 #if defined(_WIN32)
         if (const char* appData = std::getenv("APPDATA"); appData && *appData) {
-            const auto roamingRoot = std::filesystem::path(appData) / "CT-MKWII" / relativeRoot;
-            if (std::filesystem::is_directory(roamingRoot, ec)) {
-                resolved = roamingRoot;
+            const auto appDataRoot = std::filesystem::path(appData) / "CT-MKWII";
+            const auto combinedRoot = appDataRoot / "CTGPClassic" / relativeRoot;
+            const auto legacyRoot = appDataRoot / relativeRoot;
+            if (std::filesystem::is_directory(combinedRoot, ec)) {
+                resolved = combinedRoot;
+                RT_LOG(RT_TAG_MOD) << "overlay root fallback (%APPDATA%/CTGPClassic): "
+                                   << resolved.string() << std::endl;
+            } else if (std::filesystem::is_directory(legacyRoot, ec)) {
+                resolved = legacyRoot;
                 RT_LOG(RT_TAG_MOD) << "overlay root fallback (%APPDATA%): "
                                    << resolved.string() << std::endl;
             }

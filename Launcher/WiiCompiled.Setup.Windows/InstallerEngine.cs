@@ -92,10 +92,9 @@ internal sealed class InstallerEngine
             : RetroRewindSource.ResolveRetroRewind6(options.RetroDirectoryPath);
         var ctgpRoot = options.CtgpDirectoryPath is null
             ? null
-            : Path.GetFullPath(options.CtgpDirectoryPath);
-        if (ctgpRoot is not null && !File.Exists(Path.Combine(ctgpRoot, "Binaries", "CodeR.pul")))
-            throw new InvalidDataException(
-                "The CTGP Classic folder must contain Binaries\\CodeR.pul.");
+            : CtgpClassicSource.Resolve(options.CtgpDirectoryPath);
+        if (ctgpRoot is not null)
+            _ = CtgpClassicSource.ResolveRiivolutionRoot(ctgpRoot);
         if (canonicalRetroRoot is not null && ctgpRoot is not null)
             throw new InvalidOperationException(
                 "Retro Rewind and CTGP Classic cannot be installed in the same operation.");

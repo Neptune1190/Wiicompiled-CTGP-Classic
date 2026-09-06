@@ -273,11 +273,8 @@ internal static class ConsoleCommands
 
     private static void ValidateCtgpDirectory(string directory)
     {
-        var root = Path.GetFullPath(directory);
-        var codePul = Path.Combine(root, "Binaries", "CodeR.pul");
-        if (!Directory.Exists(root) || !File.Exists(codePul))
-            throw new InvalidDataException(
-                "The CTGP Classic folder must contain Binaries\\CodeR.pul.");
+        var root = CtgpClassicSource.Resolve(directory);
+        _ = CtgpClassicSource.ResolveRiivolutionRoot(root);
     }
 
     private static async Task RepairCtgpClassic(Installation installation, string directory,
@@ -288,7 +285,8 @@ internal static class ConsoleCommands
             throw new InvalidDataException(
                 "The installed recompilation toolkit is missing. Apply the current setup release before repairing CTGP Classic.");
 
-        var root = Path.GetFullPath(directory);
+        var root = CtgpClassicSource.Resolve(directory);
+        _ = CtgpClassicSource.ResolveRiivolutionRoot(root);
         var toolkitFingerprint = installation.ResolveToolkitFingerprint();
         if (string.IsNullOrWhiteSpace(toolkitFingerprint))
             throw new InvalidDataException("The installed recompilation toolkit cannot be identified safely.");
