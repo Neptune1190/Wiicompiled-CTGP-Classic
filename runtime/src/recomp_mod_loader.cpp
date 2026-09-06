@@ -280,20 +280,6 @@ void RegisterDvdOverlayRoot(std::string root) {
     const std::filesystem::path base =
         RuntimeConfigFile::ExecutableDirectory().value_or(std::filesystem::current_path());
     std::filesystem::path resolved = RuntimeConfigFile::ResolveRelativeTo(base, root);
-    std::error_code ec;
-    const auto relativeRoot = RuntimeConfigFile::PathFromUtf8(root);
-    if (relativeRoot.is_relative() && !std::filesystem::is_directory(resolved, ec)) {
-#if defined(_WIN32)
-        if (const char* appData = std::getenv("APPDATA"); appData && *appData) {
-            const auto roamingRoot = std::filesystem::path(appData) / "CT-MKWII" / relativeRoot;
-            if (std::filesystem::is_directory(roamingRoot, ec)) {
-                resolved = roamingRoot;
-                RT_LOG(RT_TAG_MOD) << "overlay root fallback (%APPDATA%): "
-                                   << resolved.string() << std::endl;
-            }
-        }
-#endif
-    }
 
     std::lock_guard<std::mutex> lock(ModMutex());
     auto& roots = OverlayRoots();

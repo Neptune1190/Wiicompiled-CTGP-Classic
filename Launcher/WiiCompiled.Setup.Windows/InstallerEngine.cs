@@ -22,6 +22,9 @@ internal sealed class InstallerEngine
         var existing = new Installation(installDirectory);
 
         PortableInstallHealing.HealMovedInstall(existing, _reporter);
+        // Capture this before publishing anything. An existing installation may be repaired or
+        // updated by this invocation, but those operations must not recreate the user's shortcuts.
+        var firstInstall = !existing.IsPresent;
         var previousState = existing.ReadInstallState();
         using var scratch = Directory.Exists(installDirectory)
             ? InstallScratchSpace.CreateInsideInstall(installDirectory, _reporter)
@@ -148,7 +151,7 @@ internal sealed class InstallerEngine
                     updatedState.RetroRewindInstalled, candidateRuntimeAssetsFingerprint,
                     remainingCancellation);
             Publish(staging, installDirectory, canonicalRetroRoot, updatedState,
-                releaseEntries, remainingCancellation);
+                releaseEntries, remainingCancellation, createShortcuts: firstInstall);
             if (ctgpRoot is not null)
                 await BuildAndPublishCtgpAsync(installDirectory, ctgpRoot, manifest, remainingCancellation);
             return;
@@ -172,7 +175,8 @@ internal sealed class InstallerEngine
 
         await PublishToolkitAndReconcileProductsAsync(existing, staging, workspace, manifest,
             previousState, options, canonicalRetroRoot, retroCompileInputs,
-            publishGameAssets: reusableGameAssets is null, cancellationToken);
+            publishGameAssets: reusableGameAssets is null, createShortcuts: firstInstall,
+            cancellationToken: cancellationToken);
 
         if (ctgpRoot is not null)
             await BuildAndPublishCtgpAsync(installDirectory, ctgpRoot, manifest, cancellationToken);
@@ -196,6 +200,14 @@ internal sealed class InstallerEngine
                 components.Compile, manifest.ExpectedDolSha256, manifest.ExpectedRelSha256,
                 InputValidation.Sha256File(Path.Combine(ctgpRoot, "Binaries", "CodeR.pul")),
                 RetroWfcPayloadMode.NotApplicable);
+
+            FileSystemUtilities.CopyDirectory(ctgpRoot, Path.Combine(output, "ctgpclassic"));
+            var xmlSource = Path.Combine(ctgpRoot, "..", "Riivolution", "ctgpclassic.xml");
+            if (!File.Exists(xmlSource))
+                throw new InvalidDataException("The CTGP Classic folder's sibling Riivolution\\ctgpclassic.xml is missing.");
+            var xmlDestination = Path.Combine(output, "Riivolution", "ctgpclassic.xml");
+            Directory.CreateDirectory(Path.GetDirectoryName(xmlDestination)!);
+            File.Copy(xmlSource, xmlDestination, overwrite: true);
 
             var entries = new List<InstallTransactionEntry>
             {
@@ -236,7 +248,7 @@ internal sealed class InstallerEngine
         string stagedWorkspace, PayloadManifest manifest, InstallState? previousState,
         InstallOptions options, string? canonicalRetroRoot,
         RetroRewindCompileInputs? retroCompileInputs,
-        bool publishGameAssets, CancellationToken cancellationToken)
+        bool publishGameAssets, bool createShortcuts, CancellationToken cancellationToken)
     {
         var installDirectory = existing.Root;
 
@@ -264,7 +276,8 @@ internal sealed class InstallerEngine
         if (publishGameAssets) AddComponent(entries, staging, installDirectory, "GameAssets");
 
         Publish(staging, installDirectory, canonicalRetroRoot, state,
-            entries, cancellationToken, progressPercent: 8, completionPercent: 10);
+            entries, cancellationToken, progressPercent: 8, completionPercent: 10,
+            createShortcuts: createShortcuts);
 
         _reporter.Progress(InstallStages.BuildBase,
             "Producing the installed products with the published toolkit...", 11);
@@ -327,7 +340,7 @@ internal sealed class InstallerEngine
     private void Publish(string staging, string installDirectory,
         string? canonicalRetroRoot, InstallState state,
         List<InstallTransactionEntry> entries, CancellationToken cancellationToken,
-        int progressPercent = 95, int completionPercent = 99)
+        int progressPercent = 95, int completionPercent = 99, bool createShortcuts = false)
     {
         entries.Add(InstallTransactionEntry.Directory(Path.Combine(staging, "licenses"),
             Path.Combine(installDirectory, "licenses")));
@@ -372,7 +385,8 @@ internal sealed class InstallerEngine
             {
                 ShellIntegration.RegisterUninstaller(installDirectory, state.RetroRewindInstalled);
             }
-            ShellIntegration.CreateShortcuts(installDirectory);
+            if (createShortcuts)
+                ShellIntegration.CreateShortcuts(installDirectory);
         }
         catch (Exception ex)
         {

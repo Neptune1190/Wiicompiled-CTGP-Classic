@@ -305,6 +305,14 @@ internal static class ConsoleCommands
             installation.ReadInstallState()?.RelSha256 ?? "",
             InputValidation.Sha256File(Path.Combine(root, "Binaries", "CodeR.pul")),
             RetroWfcPayloadMode.NotApplicable);
+        FileSystemUtilities.CopyDirectory(root, Path.Combine(output, "ctgpclassic"));
+        var xmlSource = Path.Combine(root, "..", "Riivolution", "ctgpclassic.xml");
+        if (!File.Exists(xmlSource))
+            throw new InvalidDataException("The CTGP Classic folder's sibling Riivolution\\ctgpclassic.xml is missing.");
+        var xmlDestination = Path.Combine(output, "Riivolution", "ctgpclassic.xml");
+        Directory.CreateDirectory(Path.GetDirectoryName(xmlDestination)!);
+        File.Copy(xmlSource, xmlDestination, overwrite: true);
+
         var state = installation.ReadInstallState() ?? new InstallState { InstallDir = installation.Root };
         state.CtgpClassicInstalled = true;
         var statePath = Path.Combine(scratch.Root, InstalledLayout.InstallStateFileName);
