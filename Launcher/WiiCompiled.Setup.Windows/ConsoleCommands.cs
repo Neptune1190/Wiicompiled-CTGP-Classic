@@ -11,12 +11,13 @@ internal static class ConsoleCommands
         Console.Out.WriteLine("Wheel Wizard is the graphical interface for installing and launching WiiCompiled.");
         Console.Out.WriteLine();
         Console.Out.WriteLine("Commands:");
-        Console.Out.WriteLine("  --silent --game <image> --install-dir <dir> [--retro-dir <folder>] [--ctgp-dir <folder>] [--portable]");
-        Console.Out.WriteLine("  --verify-inputs --game <image> [--retro-dir <folder>] [--ctgp-dir <folder>]");
-        Console.Out.WriteLine("  --check-products [--install-dir <dir>] [--retro-dir <folder>] [--ctgp-dir <folder>] [--progress-json]");
+        Console.Out.WriteLine("  --silent --profile <base|retro-rewind|ctgpclassic> --game <image> --install-dir <dir> [--retro-dir <folder>] [--ctgp-dir <folder>] [--portable]");
+        Console.Out.WriteLine("  --verify-inputs --profile <base|retro-rewind|ctgpclassic> --game <image> [--retro-dir <folder>] [--ctgp-dir <folder>]");
+        Console.Out.WriteLine("  --check-products [--profile <base|retro-rewind|ctgpclassic>] [--install-dir <dir>] [--retro-dir <folder>] [--ctgp-dir <folder>] [--progress-json]");
         Console.Out.WriteLine("  --repair-products --install-dir <dir> --retro-dir <folder> " +
                              "(--download-retro-wfc-payload | --skip-retro-wfc-payload) [--progress-json]");
         Console.Out.WriteLine("  --repair-products --install-dir <dir> --ctgp-dir <folder> [--progress-json]");
+        Console.Out.WriteLine("  --launch --profile <base|retro-rewind|ctgpclassic>");
         Console.Out.WriteLine("  --launch-retro | --launch-ctgp | --launch-base");
         Console.Out.WriteLine("  --uninstall --install-dir <dir>");
         Console.Out.WriteLine("  --version");

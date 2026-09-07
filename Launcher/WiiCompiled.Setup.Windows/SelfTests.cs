@@ -299,6 +299,17 @@ internal static class SelfTests
             throw new Exception("--launch-retro was not recognised.");
         if (CommandLine.Parse(["--launch-ctgp"]).Mode != AppMode.LaunchCtgp)
             throw new Exception("--launch-ctgp was not recognised.");
+        var profileLaunch = CommandLine.Parse(["--launch", "--profile", "ctgpclassic"]);
+        if (profileLaunch.Mode != AppMode.LaunchProfile ||
+            profileLaunch.Profile != ProductProfile.CtgpClassic)
+            throw new Exception("The profile launch contract did not parse.");
+        var profileInstall = CommandLine.Parse([
+            "--silent", "--profile", "ctgpclassic", "--game", "game.iso",
+            "--install-dir", "C:\\Games\\MKW", "--ctgp-dir", "D:\\CTGPClassic"
+        ]);
+        if (profileInstall.Profile != ProductProfile.CtgpClassic ||
+            profileInstall.CtgpDirectoryPath != "D:\\CTGPClassic")
+            throw new Exception("The CTGP profile install contract did not parse.");
         Rejects("Retro Rewind and CTGP cannot be combined", "--silent", "--game", "game.iso",
             "--retro-dir", "D:\\RetroRewind", "--ctgp-dir", "D:\\CT-MKWII");
 

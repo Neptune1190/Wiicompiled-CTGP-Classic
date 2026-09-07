@@ -62,6 +62,14 @@ internal static class Program
                     command.Mode == AppMode.LaunchCtgp ? BuildProfile.CtgpClassic : BuildProfile.RetroRewind)
                     .GetAwaiter().GetResult();
 
+            if (command.Mode == AppMode.LaunchProfile)
+                return GameLaunchService.LaunchAsync(command.Profile switch
+                {
+                    ProductProfile.Base => BuildProfile.Base,
+                    ProductProfile.CtgpClassic => BuildProfile.CtgpClassic,
+                    _ => BuildProfile.RetroRewind
+                }).GetAwaiter().GetResult();
+
             if (command.Mode is AppMode.SilentInstall or AppMode.RepairProducts)
             {
                 using var cancellationSignal = CancellationSignal.ObserveEnvironment();
