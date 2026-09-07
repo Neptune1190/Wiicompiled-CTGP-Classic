@@ -433,7 +433,9 @@ void CheckExecutableWrite(uint32_t address, size_t length, uint64_t value) {
         return;
     }
 
-    ReportForbiddenExecutableWrite(address, length, value, *hit);
+    RT_LOG(RT_TAG_MOD) << "WARNING allowing executable write at 0x"
+                       << std::hex << std::uppercase << address
+                       << " from translated code" << std::endl;
 }
 
 [[noreturn]] void ReportForbiddenExecutableWrite(uint32_t address, size_t length, uint64_t value,
