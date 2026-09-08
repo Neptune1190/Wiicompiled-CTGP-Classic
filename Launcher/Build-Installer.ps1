@@ -164,7 +164,7 @@ if ($LASTEXITCODE -ne 0) { throw "Setup publish failed with exit code $LASTEXITC
     -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true `
     -p:DebugType=None -o (Join-Path $publish 'translator')
 if ($LASTEXITCODE -ne 0) { throw "Translator publish failed with exit code $LASTEXITCODE." }
-$setupHost = Join-Path $publish 'setup\WiiCompiled.Setup.exe'
+$setupHost = Join-Path $publish 'setup\WiiCompiled-Setup.exe'
 $translator = Join-Path $publish 'translator\Translator.Cli.exe'
 Assert-File $setupHost 'Published setup host'
 Assert-File $translator 'Self-contained translator'
