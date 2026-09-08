@@ -164,7 +164,8 @@ internal static class ConsoleCommands
             // product executable/state file has not reached the live directory yet.
             using var operationLock = InstallOperationLock.Acquire(installation.Root, reporter);
             PortableInstallHealing.HealMovedInstall(installation, reporter);
-            var report = InspectProducts(installation, command.RetroDirectoryPath,
+            var report = InspectProducts(installation, command.Profile ?? ProductProfile.Base,
+                command.RetroDirectoryPath,
                 cancellationToken: cancellationToken);
             Console.Out.WriteLine(command.ProgressJson
                 ? SerializeProductsReport(report)
@@ -321,12 +322,23 @@ internal static class ConsoleCommands
     /// nothing else is reported.
     /// </summary>
     internal sealed record ProductsReport(string InstallDirectory,
-        ProductState Base, ProductState RetroRewind, ProductState CtgpClassic)
+        ProductState Base, ProductState RetroRewind, ProductState CtgpClassic,
+        ProductProfile Profile = ProductProfile.RetroRewind)
     {
-        public bool RebuildRequired => Base.ActionRequired || RetroRewind.ActionRequired || CtgpClassic.ActionRequired;
+        public bool RebuildRequired => Profile switch
+        {
+            ProductProfile.Base => Base.ActionRequired,
+            ProductProfile.CtgpClassic => CtgpClassic.ActionRequired,
+            _ => Base.ActionRequired || RetroRewind.ActionRequired
+        };
 
         public string ActionRequiredDetail => string.Join(" ",
-            new[] { Base, RetroRewind, CtgpClassic }
+            (Profile switch
+            {
+                ProductProfile.Base => new[] { Base },
+                ProductProfile.CtgpClassic => new[] { CtgpClassic },
+                _ => new[] { Base, RetroRewind }
+            })
                 .Where(state => state.ActionRequired)
                 .Select(state => state.Detail)
                 .Where(detail => !string.IsNullOrWhiteSpace(detail)));
@@ -337,13 +349,18 @@ internal static class ConsoleCommands
     /// folder when it supplied one, otherwise the recorded <c>retro_rewind_root</c>.
     /// </summary>
     internal static ProductsReport InspectProducts(Installation installation,
-        string? canonicalRetroDirectory = null, bool? cachedRetroWfcPayloadMatches = null,
+        ProductProfile profile = ProductProfile.RetroRewind, string? canonicalRetroDirectory = null,
+        bool? cachedRetroWfcPayloadMatches = null,
         CancellationToken cancellationToken = default)
     {
         if (!installation.IsPresent) return AbsentReport(installation);
-        var canonical = installation.ResolveCanonicalCompileInputs(canonicalRetroDirectory,
-            out var canonicalError, cancellationToken);
-        return BuildReport(installation, canonical, canonicalError, cachedRetroWfcPayloadMatches);
+        string? canonicalError = null;
+        var canonical = profile == ProductProfile.RetroRewind
+            ? installation.ResolveCanonicalCompileInputs(canonicalRetroDirectory,
+                out canonicalError, cancellationToken)
+            : null;
+        return BuildReport(installation, profile, canonical, canonicalError,
+            cachedRetroWfcPayloadMatches);
     }
 
     /// <summary>
@@ -353,7 +370,8 @@ internal static class ConsoleCommands
     internal static ProductsReport InspectProducts(Installation installation,
         RetroRewindCompileInputs canonical, bool? cachedRetroWfcPayloadMatches = null) =>
         installation.IsPresent
-            ? BuildReport(installation, canonical, null, cachedRetroWfcPayloadMatches)
+            ? BuildReport(installation, ProductProfile.RetroRewind, canonical, null,
+                cachedRetroWfcPayloadMatches)
             : AbsentReport(installation);
 
     private static ProductsReport AbsentReport(Installation installation) =>
@@ -364,7 +382,7 @@ internal static class ConsoleCommands
             new ProductState(ProductStatus.Absent, "Retro Rewind is not installed."),
             new ProductState(ProductStatus.Absent, "CTGP Classic is not installed."));
 
-    private static ProductsReport BuildReport(Installation installation,
+    private static ProductsReport BuildReport(Installation installation, ProductProfile profile,
         RetroRewindCompileInputs? canonical, string? canonicalError,
         bool? cachedRetroWfcPayloadMatches)
     {
@@ -373,7 +391,7 @@ internal static class ConsoleCommands
             installation.CheckBase(toolkitFingerprint),
             installation.CheckRetroRewind(toolkitFingerprint, canonical, canonicalError,
                 cachedRetroWfcPayloadMatches),
-            installation.CheckCtgpClassic(toolkitFingerprint));
+            installation.CheckCtgpClassic(toolkitFingerprint), profile);
     }
 
     /// <summary>
